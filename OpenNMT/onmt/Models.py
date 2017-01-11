@@ -130,6 +130,7 @@ class Decoder(nn.Module):
             self.add_module('feat_lut', feat_lut)
 
     def forward(self, input, hidden, context):
+    def forward(self, input, hidden, context, init_output):
         if self.has_features:
             word_emb = self.word_lut(input[0])
             feat_emb = self.feat_lut(input[1])
@@ -142,6 +143,9 @@ class Decoder(nn.Module):
         h_size = (batch_size, self.hidden_size)
         output = Variable(emb.data.new(*h_size).zero_(), requires_grad=False)
 
+        # n.b. you can increase performance if you compute W_ih * x for all
+        # iterations in parallel, but that's only possible if
+        # self.input_feed=False
         outputs = []
         for emb_t in emb.chunk(emb.size(0)):
             emb_t = emb_t.squeeze(0)
@@ -154,7 +158,7 @@ class Decoder(nn.Module):
             outputs += [output]
 
         outputs = torch.stack(outputs)
-        return outputs
+        return outputs, hidden
 
 
 class NMTModel(nn.Module):
@@ -169,11 +173,17 @@ class NMTModel(nn.Module):
     def set_generate(self, enabled):
         self.generate = enabled
 
+    def make_init_output(self, input):
+        batch_size = input.size(1)
+        h_size = (batch_size, self.hidden_size)
+        return Variable(input.data.new(*h_size).zero_(), requires_grad=False)
+
     def forward(self, input):
         src = input[0]
         tgt = input[1][:-1]  # exclude last target from inputs
         enc_hidden, context = self.encoder(src)
-        out = self.decoder(tgt, enc_hidden, context)
+        init_output = self.make_init_output(tgt)
+        out, dec_hidden = self.decoder(tgt, enc_hidden, context, init_output)
         if self.generate:
             out = self.generator(out)
 
