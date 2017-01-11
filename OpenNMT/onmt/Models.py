@@ -129,7 +129,6 @@ class Decoder(nn.Module):
         if self.has_features:
             self.add_module('feat_lut', feat_lut)
 
-    def forward(self, input, hidden, context):
     def forward(self, input, hidden, context, init_output):
         if self.has_features:
             word_emb = self.word_lut(input[0])
@@ -147,18 +146,19 @@ class Decoder(nn.Module):
         # iterations in parallel, but that's only possible if
         # self.input_feed=False
         outputs = []
+        output = init_output
         for emb_t in emb.chunk(emb.size(0)):
             emb_t = emb_t.squeeze(0)
             if self.input_feed:
                 emb_t = torch.cat([emb_t, output], 1)
 
             output, hidden = self.rnn(emb_t, hidden)
-            output = self.attn(output, context.t())
+            output, attn = self.attn(output, context.t())
             output = self.dropout(output)
             outputs += [output]
 
         outputs = torch.stack(outputs)
-        return outputs, hidden
+        return outputs, hidden, attn
 
 
 class NMTModel(nn.Module):
@@ -173,17 +173,17 @@ class NMTModel(nn.Module):
     def set_generate(self, enabled):
         self.generate = enabled
 
-    def make_init_output(self, input):
-        batch_size = input.size(1)
-        h_size = (batch_size, self.hidden_size)
-        return Variable(input.data.new(*h_size).zero_(), requires_grad=False)
+    def make_init_decoder_output(self, context):
+        batch_size = context.size(1)
+        h_size = (batch_size, self.decoder.hidden_size)
+        return Variable(context.data.new(*h_size).zero_(), requires_grad=False)
 
     def forward(self, input):
         src = input[0]
         tgt = input[1][:-1]  # exclude last target from inputs
         enc_hidden, context = self.encoder(src)
-        init_output = self.make_init_output(tgt)
-        out, dec_hidden = self.decoder(tgt, enc_hidden, context, init_output)
+        init_output = self.make_init_decoder_output(context)
+        out, dec_hidden, _attn = self.decoder(tgt, enc_hidden, context, init_output)
         if self.generate:
             out = self.generator(out)
 

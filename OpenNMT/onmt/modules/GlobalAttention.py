@@ -41,11 +41,11 @@ class GlobalAttention(nn.Module):
         # Get attention
         attn = torch.bmm(context, targetT).squeeze(2)  # batch x sourceL
         attn = self.sm(attn)
-        attn = attn.view(attn.size(0), 1, attn.size(1))  # batch x 1 x sourceL
+        attn3 = attn.view(attn.size(0), 1, attn.size(1))  # batch x 1 x sourceL
 
-        weightedContext = torch.bmm(attn, context).squeeze(1)  # batch x dim
+        weightedContext = torch.bmm(attn3, context).squeeze(1)  # batch x dim
         contextCombined = torch.cat((weightedContext, input), 1)
 
         contextOutput = self.tanh(self.linear_out(contextCombined))
 
-        return contextOutput
+        return contextOutput, attn

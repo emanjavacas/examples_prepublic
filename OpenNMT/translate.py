@@ -1,4 +1,8 @@
-import onmt.init
+import onmt
+import torch
+import argparse
+import time
+import math
 
 parser = argparse.ArgumentParser(description='translate.py')
 
@@ -29,8 +33,9 @@ parser.add_argument('-n_best', type=int, default=1, help="If > 1, it will also o
 parser.add_argument('-cuda', action="store_true", help="ID of the GPU to use (-1 = use CPU, 0 = let cuda choose between available GPUs)")
 
 def reportScore(name, scoreTotal, wordsTotal):
-    print(name + " AVG SCORE. %.4f, " + name + " PPL: %.4f" % (
-        scoreTotal / wordsTotal, math.exp(-scoreTotal/wordsTotal)))
+    print("%s AVG SCORE: %.4f, %s PPL: %.4f" % (
+        name, scoreTotal / wordsTotal,
+        name, math.exp(-scoreTotal/wordsTotal)))
 
 
 def main():
@@ -49,45 +54,46 @@ def main():
     count = 0
     tgtF = open(opt.tgt) if opt.tgt else None
     for line in open(opt.src):
-        count += 1
 
         # FIXME: features? need to use extract from preprocess.py
         srcTokens = line.split()
-        tgtTokens = tgtF.readline().split() if tgtF else None
-
         srcBatch += [srcTokens]
-        tgtBatch += [tgtTokens]
+        if tgtF:
+            tgtTokens = tgtF.readline().split() if tgtF else None
+            tgtBatch += [tgtTokens]
 
         if len(srcBatch) < opt.batch_size:
             continue
 
-        predBatch, info = onmt.translate.Translator.translate(srcBatch, tgtBatch)
+        predBatch, predScore, goldScore = translator.translate(srcBatch, tgtBatch)
 
-        predScoreTotal += sum(x.score for x in info)
+        predScoreTotal += sum(score[0] for score in predScore)
         predWordsTotal += sum(len(x) for x in predBatch)
         if tgtF is not None:
-            goldScoreTotal += sum(x.goldScore for x in info)
+            goldScoreTotal += sum(score[0] for score in goldScore)
             goldWordsTotal += sum(len(x) for x in tgtBatch)
 
         for b in range(len(predBatch)):
-            outFile.write(" ".join(predBatch[b]) + '\n')
+            count += 1
+            outF.write(" ".join(predBatch[b][0]) + '\n')
 
             if opt.verbose:
-                print('SENT ' + count + '. ' + " ".join(srcBatch[b]))
-                print('PRED ' + count + '. ' + " ".join(predBatch[b]))
-                print("PRED SCORE: %.4f" % info[b].score)
+                print('SENT %d: %s' % (count, " ".join(srcBatch[b])))
+                print('PRED %d: %s' % (count, " ".join(predBatch[b][0])))
+                print("PRED SCORE: %.4f" % predScore[b][0])
 
                 if tgtF is not None:
-                    print('GOLD ' + count + '. ' + " ".join(tgtBatch[b]))
-                    print("GOLD SCORE: %.4f" % info[b].goldScore))
+                    print('GOLD %d: %s ' % (count, " ".join(tgtBatch[b])))
+                    print("GOLD SCORE: %.4f" % goldScore[b])
 
                 if opt.n_best > 1:
                     print('\nBEST HYP:')
-                    for pred in info[b].nBest:
-                        print("[%.4f] %s" % (pred.score, " ".join(pred.tokens)))
+                    for n in range(opt.n_best):
+                        print("[%.4f] %s" % (predScore[b][n], " ".join(predBatch[b][0])))
 
                 print('')
 
+        srcBatch, tgtBatch = [], []
 
     reportScore('PRED', predScoreTotal, predWordsTotal)
     if tgtF:
@@ -97,5 +103,5 @@ def main():
         tgtF.close()
 
 
-if __name__ == "main":
+if __name__ == "__main__":
     main()

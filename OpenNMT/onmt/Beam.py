@@ -13,20 +13,23 @@
 import torch
 import onmt
 
+
 class Beam(object):
-    def __init__(self, size):
+    def __init__(self, size, cuda=False):
 
         self.size = size
         self.done = False
 
+        self.tt = torch.cuda if cuda else torch
+
         # The score for each translation on the beam.
-        self.scores = torch.FloatTensor(size).zero()
+        self.scores = self.tt.FloatTensor(size).zero_()
 
         # The backpointers at each time-step.
-        self.prevKs = [torch.LongTensor(size).fill(1)]
+        self.prevKs = [self.tt.LongTensor(size).fill_(1)]
 
         # The outputs at each time-step.
-        self.nextYs = [torch.LongTensor(size).fill(onmt.Constants.PAD)]
+        self.nextYs = [self.tt.LongTensor(size).fill_(onmt.Constants.PAD)]
         self.nextYs[0][0] = onmt.Constants.BOS
 
         # The attentions (matrix) for each time.
@@ -50,7 +53,7 @@ class Beam(object):
     #
     # Returns. True if beam search is complete.
     def advance(self, wordLk, attnOut):
-        numWords = wordLk.size(0)
+        numWords = wordLk.size(1)
 
         # Sum the previous scores.
         for k in range(self.size):
@@ -61,18 +64,21 @@ class Beam(object):
         bestScores, bestScoresId = flatWordLk.topk(self.size, 0, True, True)
 
         self.scores = bestScores
-        self.prevKs.append([scoreId // numWords for scoreId in bestScoresId])
-        self.nextYs.append([scoreId % numWords for scoreId in bestScoresId])
-        self.attn.append([attnOut[scoreId // numWords] for scoreId in bestScoresId])
+        self.prevKs.append(self.tt.LongTensor(
+            [scoreId // numWords for scoreId in bestScoresId]))
+        self.nextYs.append(self.tt.LongTensor(
+            [scoreId % numWords for scoreId in bestScoresId]))
+        self.attn.append(
+            [attnOut[scoreId // numWords] for scoreId in bestScoresId])
 
         # End condition is when top-of-beam is EOS.
-        if nextY[1] == onmt.Constants.EOS:
+        if self.nextYs[-1][0] == onmt.Constants.EOS:
             self.done = True
 
         return self.done
 
     def sortBest(self):
-        return torch.sort(self.scores, 1, True)
+        return torch.sort(self.scores, 0, True)
 
     # Get the score of the best in the beam.
     def getBest(self):
@@ -92,9 +98,9 @@ class Beam(object):
     def getHyp(self, k):
         hyp, attn = [], []
 
-        for j in range(len(self.prevKs), 1, -1):
+        for j in range(len(self.prevKs) - 1, 0, -1):
             hyp.append(self.nextYs[j][k])
             attn.append(self.attn[j - 1][k])
             k = self.prevKs[j][k]
 
-        return hyp[::-1], attn[::-1]
+        return hyp[::-1], torch.stack(attn[::-1])
