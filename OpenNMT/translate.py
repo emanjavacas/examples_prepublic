@@ -15,7 +15,7 @@ parser.add_argument('-output', default='pred.txt', help="Path to output the pred
 
 parser.add_argument('-beam_size',  type=int, default=5,  help="Beam size")
 parser.add_argument('-batch_size', type=int, default=30, help="Batch size")
-parser.add_argument('-max_sent_length', default=250, help="Maximum sentence length. If any sequences in srcfile are longer than this then it will error out")
+parser.add_argument('-max_sent_length', default=100, help="Maximum sentence length. If any sequences in srcfile are longer than this then it will error out")
 parser.add_argument('-replace_unk', action="store_true", help= \
                     """Replace the generated UNK tokens with the source token that
                     had the highest attention weight. If phrase_table is provided,

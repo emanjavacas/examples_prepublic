@@ -46,7 +46,7 @@ class Encoder(nn.Module):
         if self.has_features:
             self.add_module('feat_lut', feat_lut)
 
-    def forward(self, input):
+    def forward(self, input, hidden=None):
         if self.has_features:
             word_emb = self.word_lut(input[0])
             feat_emb = self.feat_lut(input[1])
@@ -54,12 +54,14 @@ class Encoder(nn.Module):
         else:
             emb = self.word_lut(input)
 
-        batch_size = emb.size(1)
-        h_size = (self.layers * self.num_directions, batch_size, self.hidden_size)
-        h_0 = Variable(emb.data.new(*h_size).zero_(), requires_grad=False)
-        c_0 = Variable(emb.data.new(*h_size).zero_(), requires_grad=False)
-        hidden_0 = (h_0, c_0)
-        outputs, hidden_t = self.rnn(emb, hidden_0)
+        if hidden is None:
+            batch_size = emb.size(1)
+            h_size = (self.layers * self.num_directions, batch_size, self.hidden_size)
+            h_0 = Variable(emb.data.new(*h_size).zero_(), requires_grad=False)
+            c_0 = Variable(emb.data.new(*h_size).zero_(), requires_grad=False)
+            hidden = (h_0, c_0)
+
+        outputs, hidden_t = self.rnn(emb, hidden)
         return hidden_t, outputs
 
 

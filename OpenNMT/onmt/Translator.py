@@ -42,13 +42,12 @@ class Translator(object):
     def buildTargetTokens(self, pred, src, attn):
         tokens = self.tgt_dict.convertToLabels(pred, onmt.Constants.EOS)
         tokens = tokens[:-1]  # EOS
-
         if self.opt.replace_unk:
             for i in range(len(tokens)):
                 if tokens[i] == onmt.Constants.UNK_WORD:
-                    _, maxIndex = attn[i].max(1)
+                    _, maxIndex = attn[i].max(0)
                     # FIXME phrase table
-                    tokens[i] = src[maxIndex[1]]
+                    tokens[i] = src[maxIndex[0]]
 
         return tokens
 
@@ -59,16 +58,21 @@ class Translator(object):
         batchSize = srcBatch.size(1)
         beamSize = self.opt.beam_size
 
-        # FIXME FIXME FIXME
-        # self.model.maskPadding()
+        # have to execute the encoder manually to deal with padding
+        encStates = None
+        context = []
+        for srcBatch_t in srcBatch.chunk(srcBatch.size(0)):
+            encStates, context_t = self.model.encoder(srcBatch_t, hidden=encStates)
+            batchPadIdx = srcBatch_t.data.squeeze(0).eq(onmt.Constants.PAD).nonzero()
+            if batchPadIdx.nelement() > 0:
+                batchPadIdx = batchPadIdx.squeeze(1)
+                encStates[0].data.index_fill_(1, batchPadIdx, 0)
+                encStates[1].data.index_fill_(1, batchPadIdx, 0)
+            context += [context_t]
 
-        encStates, context = self.model.encoder(srcBatch)
+
+        context = torch.cat(context)
         rnnSize = context.size(2)
-        # if batch.targetInput != None:
-        #     if batchSize > 1:
-        #         models.decoder.maskPadding(batch.sourceSize, batch.sourceLength)
-        #
-        #     goldScore = models.decoder.computeScore(batch, encStates, context)
 
         # Expand tensors for each beam.
         context = Variable(context.data.repeat(1, beamSize, 1))
@@ -79,23 +83,26 @@ class Translator(object):
 
         decOut = self.model.make_init_decoder_output(context)
 
+        padMask = srcBatch.data.eq(onmt.Constants.PAD).t().unsqueeze(0).repeat(beamSize, 1, 1)
+        def applyContextMask(m):
+            if isinstance(m, onmt.modules.GlobalAttention):
+                m.applyMask(padMask)
+
         batchIdx = list(range(batchSize))
         remainingSents = batchSize
         for i in range(self.opt.max_sent_length):
 
+            self.model.decoder.apply(applyContextMask)
+
             # Prepare decoder input.
-            input = torch.cat([b.getCurrentState() for b in beam
-                               if not b.done]).view(1, -1)
-
-
-            # if batchSize > 1:
-            #     models.decoder.maskPadding(sourceSizes, batch.sourceLength, opt.beam_size)
+            input = torch.stack([b.getCurrentState() for b in beam
+                               if not b.done]).t().contiguous().view(1, -1)
 
             decOut, decStates, attn = self.model.decoder(
                 Variable(input), decStates, context, decOut)
-            decOut = decOut.squeeze(0)
             # decOut: 1 x (beam*batch) x numWords
-            out = self.model.generator.forward(decOut.squeeze(0))
+            decOut = decOut.squeeze(0)
+            out = self.model.generator.forward(decOut)
 
             # batch x beam x numWords
             wordLk = out.view(beamSize, remainingSents, -1).transpose(0, 1).contiguous()
@@ -110,11 +117,12 @@ class Translator(object):
                 if not beam[b].advance(wordLk.data[idx], attn.data[idx]):
                     active += [b]
 
-                for decLayer in decStates:  # iterate over layers
-                    sentStates = decLayer.view(
-                        beamSize, remainingSents, -1)[:, idx]
+                for decState in decStates:  # iterate over h, c
+                    # layers x beam*sent x dim
+                    sentStates = decState.view(
+                        -1, beamSize, remainingSents, decState.size(2))[:, :, idx]
                     sentStates.data.copy_(
-                        sentStates.data.index_select(0, beam[b].getCurrentOrigin()))
+                        sentStates.data.index_select(1, beam[b].getCurrentOrigin()))
 
             if not active:
                 break
@@ -134,26 +142,25 @@ class Translator(object):
             decStates = (updateActive(decStates[0]), updateActive(decStates[1]))
             decOut = updateActive(decOut)
             context = updateActive(context)
+            padMask = padMask.index_select(1, activeIdx)
 
             remainingSents = len(active)
 
         allHyp, allScores, allAttn = [], [], []
         n_best = self.opt.n_best
+
         for b in range(batchSize):
             scores, ks = beam[b].sortBest()
 
             allScores += [scores[:n_best]]
-            valid_attn = srcBatch.data[:, b].ne(onmt.Constants.PAD).nonzero()
-            valid_attn = valid_attn[0]
+            valid_attn = srcBatch.data[:, b].ne(onmt.Constants.PAD).nonzero().squeeze(1)
             hyps, attn = zip(*[beam[b].getHyp(k) for k in ks[:n_best]])
-
             attn = [a.index_select(1, valid_attn) for a in attn]
             allHyp += [hyps]
             allAttn += [attn]
 
         goldScore = 0  # FIXME
         return allHyp, allScores, allAttn, goldScore
-
 
     def translate(self, srcBatch, goldBatch):
         dataset = self.buildData(srcBatch, goldBatch)

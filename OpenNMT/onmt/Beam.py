@@ -26,7 +26,7 @@ class Beam(object):
         self.scores = self.tt.FloatTensor(size).zero_()
 
         # The backpointers at each time-step.
-        self.prevKs = [self.tt.LongTensor(size).fill_(1)]
+        self.prevKs = []
 
         # The outputs at each time-step.
         self.nextYs = [self.tt.LongTensor(size).fill_(onmt.Constants.PAD)]
@@ -44,32 +44,35 @@ class Beam(object):
         return self.prevKs[-1]
 
     #  Given prob over words for every last beam `wordLk` and attention
-    #   `attnOut`. Compute and update the beam search.
+    #   `attnOut`: Compute and update the beam search.
     #
-    # Parameters.
+    # Parameters:
     #
     #     * `wordLk`- probs of advancing from the last step (K x words)
     #     * `attnOut`- attention at the last step
     #
-    # Returns. True if beam search is complete.
+    # Returns: True if beam search is complete.
     def advance(self, wordLk, attnOut):
+
         numWords = wordLk.size(1)
 
         # Sum the previous scores.
-        for k in range(self.size):
-            wordLk[k].add(self.scores[k])
+        if len(self.prevKs) > 0:
+            beamLk = wordLk + self.scores.unsqueeze(1).expand_as(wordLk)
+        else:
+            beamLk = wordLk[0]
 
-        flatWordLk = wordLk.view(-1)
+        flatBeamLk = beamLk.view(-1)
 
-        bestScores, bestScoresId = flatWordLk.topk(self.size, 0, True, True)
-
+        bestScores, bestScoresId = flatBeamLk.topk(self.size, 0, True, True)
         self.scores = bestScores
-        self.prevKs.append(self.tt.LongTensor(
-            [scoreId // numWords for scoreId in bestScoresId]))
-        self.nextYs.append(self.tt.LongTensor(
-            [scoreId % numWords for scoreId in bestScoresId]))
-        self.attn.append(
-            [attnOut[scoreId // numWords] for scoreId in bestScoresId])
+
+        # bestScoresId is flattened beam x word array, so calculate which
+        # word and beam each score came from
+        prevK = bestScoresId / numWords
+        self.prevKs.append(prevK)
+        self.nextYs.append(bestScoresId - prevK * numWords)
+        self.attn.append(attnOut.index_select(0, prevK))
 
         # End condition is when top-of-beam is EOS.
         if self.nextYs[-1][0] == onmt.Constants.EOS:
@@ -97,10 +100,10 @@ class Beam(object):
     #     2. The attention at each time step.
     def getHyp(self, k):
         hyp, attn = [], []
-
-        for j in range(len(self.prevKs) - 1, 0, -1):
-            hyp.append(self.nextYs[j][k])
-            attn.append(self.attn[j - 1][k])
+        # print(len(self.prevKs), len(self.nextYs), len(self.attn))
+        for j in range(len(self.prevKs) - 1, -1, -1):
+            hyp.append(self.nextYs[j+1][k])
+            attn.append(self.attn[j][k])
             k = self.prevKs[j][k]
 
         return hyp[::-1], torch.stack(attn[::-1])
