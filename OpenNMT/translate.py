@@ -6,31 +6,39 @@ import math
 
 parser = argparse.ArgumentParser(description='translate.py')
 
-parser.add_argument('-model', required=True, help="Path to model .pt file")
-parser.add_argument('-src',   required=True, help="Source sequence to decode (one line per sequence)")
-parser.add_argument('-tgt',   help="True target sequence (optional)")
-parser.add_argument('-output', default='pred.txt', help="Path to output the predictions (each line will be the decoded sequence")
+parser.add_argument('-model', required=True,
+                    help='Path to model .pt file')
+parser.add_argument('-src',   required=True,
+                    help='Source sequence to decode (one line per sequence)')
+parser.add_argument('-tgt',
+                    help='True target sequence (optional)')
+parser.add_argument('-output', default='pred.txt',
+                    help="""Path to output the predictions (each line will
+                    be the decoded sequence""")
+parser.add_argument('-beam_size',  type=int, default=5,
+                    help='Beam size')
+parser.add_argument('-batch_size', type=int, default=30,
+                    help='Batch size')
+parser.add_argument('-max_sent_length', default=100,
+                    help='Maximum sentence length.')
+parser.add_argument('-replace_unk', action="store_true",
+                    help="""Replace the generated UNK tokens with the source
+                    token that had the highest attention weight. If phrase_table
+                    is provided, it will lookup the identified source token and
+                    give the corresponding target token. If it is not provided
+                    (or the identified source token does not exist in the
+                    table) then it will copy the source token""")
+# parser.add_argument('-phrase_table',
+#                     help="""Path to source-target dictionary to replace UNK
+#                     tokens. See README.md for the format of this file.""")
+parser.add_argument('-verbose', action="store_true",
+                    help='Print scores and predictions for each sentence')
+parser.add_argument('-n_best', type=int, default=1,
+                    help="""If verbose is set, will output the n_best
+                    decoded sentences""")
 
-# beam search options
-
-parser.add_argument('-beam_size',  type=int, default=5,  help="Beam size")
-parser.add_argument('-batch_size', type=int, default=30, help="Batch size")
-parser.add_argument('-max_sent_length', default=100, help="Maximum sentence length. If any sequences in srcfile are longer than this then it will error out")
-parser.add_argument('-replace_unk', action="store_true", help= \
-                    """Replace the generated UNK tokens with the source token that
-                    had the highest attention weight. If phrase_table is provided,
-                    it will lookup the identified source token and give the corresponding
-                    target token. If it is not provided (or the identified source token
-                    does not exist in the table) then it will copy the source token""")
-# parser.add_argument('-phrase_table', help="""Path to source-target dictionary to replace UNK
-#                     tokens. See README.md for the format this file should be in""")
-
-parser.add_argument('-verbose', action="store_true", help="Print scores and predictions for each sentence")
-parser.add_argument('-n_best', type=int, default=1, help="If > 1, it will also output an n_best list of decoded sentences")
-
-## **Other options**
-
-parser.add_argument('-cuda', action="store_true", help="ID of the GPU to use (-1 = use CPU, 0 = let cuda choose between available GPUs)")
+parser.add_argument('-cuda', action="store_true",
+                    help="Use CUDA")
 
 def reportScore(name, scoreTotal, wordsTotal):
     print("%s AVG SCORE: %.4f, %s PPL: %.4f" % (
@@ -70,7 +78,7 @@ def main():
         predScoreTotal += sum(score[0] for score in predScore)
         predWordsTotal += sum(len(x) for x in predBatch)
         if tgtF is not None:
-            goldScoreTotal += sum(score[0] for score in goldScore)
+            goldScoreTotal += sum(goldScore)
             goldWordsTotal += sum(len(x) for x in tgtBatch)
 
         for b in range(len(predBatch)):
