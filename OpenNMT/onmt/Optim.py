@@ -15,7 +15,8 @@ class Optim(object):
         else:
             raise RuntimeError("Invalid optim method: " + self.method)
 
-    def __init__(self, params, method, lr, max_grad_norm, lr_decay=1, start_decay_at=None):
+    def __init__(self, params, method, lr, max_grad_norm, lr_decay=1,
+                 start_decay_at=None):
         self.params = list(params)  # careful: params may be a generator
         self.last_ppl = None
         self.lr = lr

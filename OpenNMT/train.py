@@ -175,11 +175,10 @@ def trainModel(model, trainData, validData, dataset, optim):
             targets = batch[1][1:]  # exclude <s> from targets
             loss, gradOutput = memoryEfficientLoss(
                     outputs, targets, model.generator, criterion)
-
             outputs.backward(gradOutput)
 
             # update the parameters
-            grad_norm = optim.step()
+            optim.step()
 
             report_loss += loss
             total_loss += loss
@@ -251,8 +250,12 @@ def main():
         generator = nn.Sequential(
             nn.Linear(opt.rnn_size, dicts['tgt'].size()),
             nn.LogSoftmax())
+        model = onmt.encoder_decoder.EncoderDecoder(
+            (opt.layers, opt.layers), opt.word_vec_size,
+            (opt.rnn_size, opt.rnn_size), opt.rnn_size,
+            dicts['src'], tgt_dict=dicts['tgt'], pad=onmt.Constants.PAD
+        )
         model = onmt.Models.NMTModel(encoder, decoder, generator)
-        
         optim = onmt.Optim(
             model.parameters(), opt.optim, opt.learning_rate, opt.max_grad_norm,
             lr_decay=opt.learning_rate_decay,
@@ -276,4 +279,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import random
+    random.seed(1)
     main()

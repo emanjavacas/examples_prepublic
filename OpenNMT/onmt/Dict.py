@@ -19,6 +19,9 @@ class Dict(object):
     def size(self):
         return len(self.idxToLabel)
 
+    def __len__(self):
+        return self.size()
+
     # Load entries from a file.
     def loadFile(self, filename):
         for line in open(filename):
@@ -35,6 +38,9 @@ class Dict(object):
                 file.write('%s %d\n' % (label, i))
 
         file.close()
+
+    def __getitem__(self, key, default=None):
+        return self.lookup(key, default=default)
 
     def lookup(self, key, default=None):
         try:

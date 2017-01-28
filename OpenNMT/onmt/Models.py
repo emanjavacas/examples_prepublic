@@ -100,15 +100,6 @@ class Decoder(nn.Module):
 
     def forward(self, input, hidden, context, init_output):
         emb = self.word_lut(input)
-
-        batch_size = input.size(1)
-
-        h_size = (batch_size, self.hidden_size)
-        output = Variable(emb.data.new(*h_size).zero_(), requires_grad=False)
-
-        # n.b. you can increase performance if you compute W_ih * x for all
-        # iterations in parallel, but that's only possible if
-        # self.input_feed=False
         outputs = []
         output = init_output
         for emb_t in emb.chunk(emb.size(0)):
